@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Суфлёр Vetera</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0c0b09">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: full-bleed black stage like glazed ceramic; one text column; a glaze-yellow reading band at a third of the height; controls docked at the bottom and hidden while reading. */
+:root{
+  --bg:#0c0b09;
+  --ink:#f6f1e7;
+  --ink-soon:#b9b1a3;
+  --ink-read:#4f4a42;
+  --glaze:#f2b630;
+  --glaze-ink:#1b1505;
+  --panel:#1b1915;
+  --line:#33302a;
+  --danger:#ff6a4d;
+  --font-prompt:"Golos Text", -apple-system, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-ui:"Golos Text", -apple-system, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --fs:84px;
+  --lh:1.3;
+  --measure:92%;
+  color-scheme:dark;
+}
+html{height:100%;box-sizing:border-box;background:var(--bg)}
+*,*::before,*::after{box-sizing:inherit}
+[hidden]{display:none!important}
+body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:16px;
+  overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#app{position:relative;height:100%;overflow:hidden}
+
+/* stage */
+#stage{position:absolute;inset:0;overflow:hidden;cursor:pointer}
+#band{position:absolute;left:0;right:0;pointer-events:none;
+  background:linear-gradient(90deg, rgba(242,182,48,.16), rgba(242,182,48,.05) 30%, rgba(242,182,48,.05) 70%, rgba(242,182,48,.16));
+  border-top:1px solid rgba(242,182,48,.22);border-bottom:1px solid rgba(242,182,48,.22)}
+#band::before,#band::after{content:"";position:absolute;top:50%;transform:translateY(-50%);
+  border-top:16px solid transparent;border-bottom:16px solid transparent}
+#band::before{left:max(4px, env(safe-area-inset-left,0px));border-left:20px solid var(--glaze)}
+#band::after{right:max(4px, env(safe-area-inset-right,0px));border-right:20px solid var(--glaze)}
+#mirror{position:absolute;inset:0}
+#mirror.on{transform:scaleX(-1)}
+#scroller{position:absolute;left:0;right:0;top:0;will-change:transform;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px))}
+#text{position:relative;width:var(--measure);margin:0 auto;font-family:var(--font-prompt);font-size:var(--fs);
+  line-height:var(--lh);font-weight:600;letter-spacing:.004em;color:var(--ink-soon);hyphens:none;overflow-wrap:break-word}
+#text p{margin:0 0 .55em}
+.w{transition:color .25s ease}
+.w.read{color:var(--ink-read)}
+.w.sent{color:var(--ink)}
+.w.cur{color:var(--ink);text-decoration:underline;text-decoration-color:var(--glaze);
+  text-decoration-thickness:.08em;text-underline-offset:.16em}
+#stage.paused .w{cursor:pointer}
+
+/* top status */
+#progress{position:absolute;left:0;top:0;height:5px;width:0;background:var(--glaze);z-index:5;transition:width .3s linear}
+#status{position:absolute;top:10px;left:0;right:0;display:flex;justify-content:space-between;align-items:center;gap:12px;z-index:5;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  pointer-events:none;transition:opacity .4s}
+#app.running #status{opacity:.55}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(27,25,21,.82);
+  border:1px solid var(--line);font-size:15px;font-weight:500;color:var(--ink-soon);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip b{color:var(--ink);font-weight:600}
+#mic{width:18px;height:18px;border-radius:50%;background:var(--ink-read);flex:none}
+#mic.on{background:var(--glaze);box-shadow:0 0 0 0 rgba(242,182,48,.6);animation:pulse 1.6s infinite}
+#mic.heard{background:#ffe08a}
+#mic.blocked{background:var(--danger);animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(242,182,48,.55)}70%{box-shadow:0 0 0 14px rgba(242,182,48,0)}100%{box-shadow:0 0 0 0 rgba(242,182,48,0)}}
+
+/* countdown */
+#count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:8;pointer-events:none;
+  font-family:var(--font-prompt);font-weight:700;font-size:min(42vh,42vw);color:var(--glaze);background:rgba(12,11,9,.55)}
+
+/* control bar */
+#bar{position:absolute;left:0;right:0;bottom:0;z-index:10;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px 14px;
+  padding-top:28px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  background:linear-gradient(to top, rgba(12,11,9,.97) 55%, rgba(12,11,9,0));transition:opacity .35s, transform .35s}
+#app.running #bar{opacity:0;transform:translateY(24px);pointer-events:none}
+.group{display:flex;align-items:center;gap:6px}
+button,select{font:inherit;color:var(--ink)}
+.btn{min-height:50px;min-width:50px;padding:0 16px;border-radius:12px;background:var(--panel);border:1px solid var(--line);
+  font-size:17px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid var(--glaze);outline-offset:2px}
+.btn[disabled]{opacity:.35;cursor:default}
+.btn.play{min-width:150px;min-height:58px;font-size:20px;font-weight:700;background:var(--glaze);border-color:var(--glaze);color:var(--glaze-ink)}
+.btn svg{width:20px;height:20px;fill:currentColor;flex:none}
+.val{min-width:92px;text-align:center;font-variant-numeric:tabular-nums;font-size:16px;color:var(--ink-soon);line-height:1.15}
+.val b{display:block;font-size:20px;color:var(--ink)}
+.seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.seg button{min-height:50px;padding:0 16px;background:var(--panel);border:0;font-size:17px;font-weight:500;color:var(--ink-soon);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:#3a3220;color:var(--ink)}
+
+/* toast */
+#toast{position:absolute;left:50%;top:56px;transform:translateX(-50%);z-index:12;max-width:min(680px, calc(100% - 32px));
+  background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--glaze);border-radius:12px;padding:12px 16px;
+  font-size:16px;line-height:1.45;color:var(--ink)}
+#toast.err{border-left-color:var(--danger)}
+
+/* panel */
+#panel{position:absolute;inset:0;z-index:20;background:rgba(12,11,9,.97);overflow-y:auto;-webkit-overflow-scrolling:touch;
+  -webkit-user-select:text;user-select:text;padding-block:calc(20px + env(safe-area-inset-top,0px)) calc(28px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px))}
+.sheet{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.sheet h2{margin:0;font-size:26px;font-weight:700;text-wrap:balance}
+.sheet h3{margin:6px 0 0;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soon)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.row.top{justify-content:space-between}
+textarea{width:100%;min-height:42vh;resize:vertical;background:#14130f;color:var(--ink);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;font:400 18px/1.5 var(--font-ui)}
+label.opt{display:flex;align-items:center;gap:10px;font-size:17px;min-height:44px}
+select{min-height:44px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 10px;font-size:16px}
+input[type=checkbox]{width:24px;height:24px;accent-color:var(--glaze)}
+input[type=range]{width:220px;accent-color:var(--glaze)}
+.help{margin:0;padding:0;list-style:none;display:grid;gap:8px;font-size:16px;line-height:1.5;color:var(--ink-soon)}
+.help b{color:var(--ink);font-weight:600}
+kbd{font:500 14px var(--font-ui);padding:1px 6px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.note{font-size:15px;line-height:1.5;color:var(--ink-soon);margin:0}
+
+@media (max-width:700px){
+  .btn{padding:0 12px;font-size:16px}
+  .btn.play{min-width:120px}
+  .hide-narrow{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .w,#bar,#status,#progress{transition:none}
+  #mic.on{animation:none}
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="stage" aria-label="Текст суфлёра">
+    <div id="band"></div>
+    <div id="mirror"><div id="scroller"><div id="text"></div></div></div>
+  </div>
+  <div id="progress"></div>
+  <div id="status">
+    <span class="chip" id="modeChip"><span id="mic" hidden></span><span id="modeText">Ручной · <b>100</b> сл/мин</span></span>
+    <span class="chip" id="leftChip"><b id="pct">0%</b><span id="left">≈ 1:20</span></span>
+  </div>
+  <div id="count" hidden>3</div>
+  <div id="toast" hidden></div>
+
+  <div id="bar" role="toolbar" aria-label="Управление суфлёром">
+    <div class="group">
+      <button class="btn hide-narrow" id="toStart" title="В начало (Home)">В начало</button>
+      <button class="btn" id="prevS" title="Предыдущая фраза (←)" aria-label="Предыдущая фраза"><svg viewBox="0 0 24 24"><path d="M15.5 4 7 12l8.5 8 1.5-1.5L10 12l7-6.5z"/></svg>Фраза</button>
+      <button class="btn play" id="play" title="Старт / пауза (пробел)">Старт</button>
+      <button class="btn" id="nextS" title="Следующая фраза (→)" aria-label="Следующая фраза">Фраза<svg viewBox="0 0 24 24"><path d="M8.5 4 7 5.5l7 6.5-7 6.5L8.5 20l8.5-8z"/></svg></button>
+    </div>
+    <div class="group" id="speedGroup">
+      <button class="btn" id="slower" title="Медленнее (↓)" aria-label="Медленнее">−</button>
+      <div class="val" id="speedVal"><b>100</b>сл/мин</div>
+      <button class="btn" id="faster" title="Быстрее (↑)" aria-label="Быстрее">+</button>
+    </div>
+    <div class="group">
+      <button class="btn" id="smaller" title="Шрифт меньше (−)" aria-label="Шрифт меньше">A−</button>
+      <button class="btn" id="bigger" title="Шрифт больше (+)" aria-label="Шрифт больше">A+</button>
+    </div>
+    <div class="seg" role="group" aria-label="Режим">
+      <button id="modeManual" aria-pressed="true">Ручной</button>
+      <button id="modeVoice" aria-pressed="false">Голос</button>
+    </div>
+    <div class="group">
+      <button class="btn" id="openPanel">Текст</button>
+      <button class="btn" id="fs" title="Во весь экран" hidden>Экран</button>
+    </div>
+  </div>
+
+  <div id="panel" hidden>
+    <div class="sheet">
+      <div class="row top">
+        <h2>Текст для суфлёра</h2>
+        <button class="btn play" id="closePanel" style="min-width:130px">Готово</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="presetV2">Вариант 2</button>
+        <button class="btn" id="presetV1">Вариант 1 (как в видео)</button>
+        <button class="btn" id="clearText">Очистить</button>
+      </div>
+      <textarea id="src" spellcheck="true" aria-label="Текст суфлёра"></textarea>
+      <p class="note">Пустая строка между абзацами даёт паузу. Текст сохраняется в этом браузере.</p>
+
+      <h3>Настройки</h3>
+      <div class="row">
+        <label class="opt"><input type="checkbox" id="optMirror"> Зеркально (для стекла суфлёра)</label>
+      </div>
+      <div class="row">
+        <label class="opt">Отсчёт перед стартом
+          <select id="optCount"><option value="0">нет</option><option value="3">3 секунды</option><option value="5">5 секунд</option><option value="10">10 секунд</option></select>
+        </label>
+        <label class="opt">Строка чтения
+          <select id="optRead"><option value="0.25">выше</option><option value="0.33">на трети</option><option value="0.45">по центру</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="opt">Ширина текста <input type="range" id="optWidth" min="60" max="100" step="2"></label>
+      </div>
+
+      <h3>Как пользоваться</h3>
+      <ul class="help">
+        <li><b>Тап по тексту</b> во время чтения — пауза. На паузе тап по слову — продолжить с него.</li>
+        <li><b>Ручной режим</b> — текст едет с заданной скоростью. 100 сл/мин — темп Ани на видео. Перед стартом идёт отсчёт, чтобы успеть отойти.</li>
+        <li><b>Голос</b> — суфлёр слушает и двигает текст сам: замолчала — стоит, начала фразу заново — вернётся к ней. Нужен Safari и включённая диктовка (Настройки → Основные → Клавиатура → Диктовка). Первый раз Safari спросит разрешение на микрофон. Жёлтая точка вверху мигает — суфлёр слышит.</li>
+        <li><b>Клавиатура или пульт</b>: <kbd>пробел</kbd> старт/пауза, <kbd>←</kbd> <kbd>→</kbd> фраза, <kbd>↑</kbd> <kbd>↓</kbd> скорость, <kbd>+</kbd> <kbd>−</kbd> шрифт.</li>
+        <li>Чтобы Айпад не гас: Настройки → Экран и яркость → Автоблокировка → Никогда.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const PRESETS = {
+v2: `Когда я впервые увидела эту вазу, я была уверена: это немецкая керамика семидесятых, fat lava. Ну или работа современного керамиста. Посмотрите на эту фактуру: чёрный глянец и жёлтая глазурь, вспененная, как застывшая лава.
+
+А потом я перевернула её — и увидела странное клеймо, похожее на домик. Ни в одном каталоге я его не нашла. Разгадка нашлась на блошином рынке: на обороте старой советской плитки стояло точно такое же. Волгоградский керамический завод.
+
+Самое удивительное — завод вообще не собирался делать вазы. Он выпускал плитку и сантехнику. Но нашлись энтузиасты, которые предложили пускать часть отходов производства на сувениры. Так при заводе появилась экспериментальная художественная мастерская. Там даже делали керамических мишек к Олимпиаде-80.
+
+Но эта ваза — совсем не сувенир с полки. Такие делали малыми партиями: на них уходило много дорогих эффектных глазурей, которые закупали в ГДР и Чехословакии или везли из Прибалтики.
+
+Посмотрите на неё ещё раз. Это огромный куст, покрытый гигантскими цветами: тюльпаны, подсолнухи, гибискус. Не просто ваза, а настоящий арт-объект, который может стать главным акцентом вашего интерьера.`,
+v1: `Когда я впервые увидела эту вазу, то подумала, что это винтажная немецкая керамика, fat lava, или современная авторская работа.
+
+Но эта ваза сделана в СССР, на Волгоградском керамическом заводе.
+
+Когда-то завод производил только плитку и сантехнику. Но благодаря местным энтузиастам было предложено использовать часть сырья для производства сувенирной продукции. Так на заводе появилась экспериментальная художественная мастерская. Именно там производились олимпийские керамические мишки и другая сувенирная продукция для Олимпиады-80.
+
+Подобная же ваза не относится к масс-маркету. Такие вазы производились малым тиражом, так как требовали большого расхода дорогостоящих эффектных глазурей. Глазури закупались за рубежом, обычно их везли из ГДР, Чехословакии или Прибалтики.`
+};
+const KEY = 'vetera-prompter-v1';
+const DEF = {text: PRESETS.v2, size: 84, wpm: 100, mode: 'manual', mirror: false, countdown: 3, readPos: 0.33, width: 92};
+let S = Object.assign({}, DEF);
+try { const o = JSON.parse(localStorage.getItem(KEY) || 'null'); if (o && typeof o === 'object') S = Object.assign({}, DEF, o); } catch (e) {}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+const $ = id => document.getElementById(id);
+const app = $('app'), stage = $('stage'), scroller = $('scroller'), textEl = $('text'), band = $('band');
+const playBtn = $('play'), countEl = $('count'), toastEl = $('toast'), micEl = $('mic');
+
+/* ---------- model ---------- */
+let W = [], sentStarts = [], sentOf = [], lines = [], lineOf = [], realCount = 0, unitsTotal = 1;
+let pos = 0, frac = 0, state = 'idle', cy = 0, stageH = 0, lineH = 0;
+
+const LAT = {a:'а',b:'б',c:'к',d:'д',e:'е',f:'ф',g:'г',h:'х',i:'и',j:'дж',k:'к',l:'л',m:'м',n:'н',o:'о',p:'п',q:'к',r:'р',s:'с',t:'т',u:'у',v:'в',w:'в',x:'кс',y:'й',z:'з'};
+function norm(s) { return s.toLowerCase().replace(/ё/g, 'е').replace(/[a-z]/g, c => LAT[c]).replace(/[^0-9а-я]/g, ''); }
+
+function build() {
+  textEl.textContent = '';
+  W = []; sentStarts = [0]; sentOf = [];
+  const paras = S.text.replace(/\r/g, '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  let sent = 0;
+  paras.forEach(p => {
+    const pe = document.createElement('p');
+    const toks = p.split(/\s+/).filter(Boolean);
+    toks.forEach((t, ti) => {
+      const sp = document.createElement('span');
+      sp.className = 'w'; sp.textContent = t; sp.dataset.i = W.length;
+      pe.appendChild(sp);
+      if (ti < toks.length - 1) pe.appendChild(document.createTextNode(' '));
+      const n = norm(t);
+      const paraEnd = ti === toks.length - 1;
+      const isSent = /[.!?…]["»”)]*$/.test(t);
+      const isComma = /[,;:]["»”)]*$/.test(t) || /^[—–-]+$/.test(t);
+      W.push({el: sp, n, len: n.length, cls: 'w',
+        u: n ? Math.min(1.8, Math.max(0.55, n.length / 6)) : 0.15,
+        pause: paraEnd ? 1.6 : isSent ? 1.0 : isComma ? 0.4 : 0});
+      sentOf.push(sent);
+      if (isSent || paraEnd) { sent++; sentStarts.push(W.length); }
+    });
+    textEl.appendChild(pe);
+  });
+  if (sentStarts.length && sentStarts[sentStarts.length - 1] >= W.length) sentStarts.pop();
+  realCount = W.filter(w => w.n).length || 1;
+  unitsTotal = W.reduce((a, w) => a + w.u + w.pause, 0) || 1;
+  pos = 0; frac = 0;
+  measure();
+  paint(true);
+  cy = targetY();
+}
+
+function measure() {
+  stageH = stage.clientHeight;
+  lines = []; lineOf = new Array(W.length);
+  let cur = null;
+  for (let i = 0; i < W.length; i++) {
+    const el = W[i].el, top = el.offsetTop;
+    if (!cur || Math.abs(top - cur.top) > 3) { cur = {top, h: el.offsetHeight, start: i, end: i}; lines.push(cur); }
+    else cur.end = i;
+    lineOf[i] = lines.length - 1;
+  }
+  lineH = parseFloat(getComputedStyle(textEl).fontSize) * parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lh') || 1.3);
+  const R = stageH * S.readPos;
+  band.style.top = (R - lineH / 2) + 'px';
+  band.style.height = lineH + 'px';
+}
+
+function yAt(f) {
+  if (!W.length || !lines.length) return 0;
+  const i = Math.max(0, Math.min(W.length - 1, Math.floor(f)));
+  const li = lineOf[i], L = lines[li], N = lines[li + 1];
+  const n = L.end - L.start + 1;
+  const within = Math.max(0, Math.min(1, (i - L.start + Math.max(0, f - i)) / n));
+  const nextTop = N ? N.top : L.top + lineH;
+  return L.top + (within - 0.5) * (nextTop - L.top) + L.h / 2;
+}
+function targetY() { return stageH * S.readPos - yAt(S.mode === 'manual' ? pos + frac : pos); }
+
+/* ---------- painting ---------- */
+let lastPainted = -1;
+function paint(force) {
+  if (!force && pos === lastPainted) return;
+  lastPainted = pos;
+  const s = sentOf[pos];
+  for (let i = 0; i < W.length; i++) {
+    const c = i < pos ? 'w read' : i === pos ? 'w cur' : sentOf[i] === s ? 'w sent' : 'w';
+    if (W[i].cls !== c) { W[i].cls = c; W[i].el.className = c; }
+  }
+  updateStatus();
+}
+function fmtTime(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
+function updateStatus() {
+  const total = W.length || 1;
+  const done = Math.min(1, (pos + (S.mode === 'manual' ? frac : 0)) / total);
+  $('progress').style.width = (done * 100).toFixed(1) + '%';
+  $('pct').textContent = Math.round(done * 100) + '%';
+  let rest = 0; for (let i = pos; i < W.length; i++) if (W[i].n) rest++;
+  const rate = S.mode === 'voice' && pace ? pace : S.wpm;
+  $('left').textContent = '≈ ' + fmtTime(rest / rate * 60);
+  const m = $('modeText');
+  if (S.mode === 'manual') m.innerHTML = 'Ручной · <b>' + S.wpm + '</b> сл/мин';
+  else m.innerHTML = 'Голос · ' + (micState === 'on' || micState === 'heard' ? 'слушаю' : micState === 'blocked' ? 'микрофон закрыт' : 'не слушает') + (pace ? ' · <b>' + pace + '</b> сл/мин' : '');
+  micEl.hidden = S.mode !== 'voice';
+  micEl.className = micState;
+  $('speedVal').innerHTML = '<b>' + S.wpm + '</b>сл/мин';
+}
+
+/* ---------- position ---------- */
+function setPos(i, f) {
+  pos = Math.max(0, Math.min(W.length - 1, i));
+  frac = f || 0;
+  paint();
+}
+function curSentIdx() { let k = 0; for (let j = 0; j < sentStarts.length; j++) if (sentStarts[j] <= pos) k = j; return k; }
+function prevSentence() {
+  const k = curSentIdx();
+  const target = (pos - sentStarts[k] > 1 || k === 0) ? sentStarts[k] : sentStarts[k - 1];
+  jump(target);
+}
+function nextSentence() { const k = curSentIdx(); if (k + 1 < sentStarts.length) jump(sentStarts[k + 1]); }
+function jump(i) { setPos(i, 0); heardSkip = heardCount; paceSamples = []; if (state === 'done') setState('paused'); }
+
+/* ---------- manual mode ---------- */
+function secPerUnit() { return (realCount * 60 / S.wpm) / unitsTotal; }
+function advanceManual(dt) {
+  let rem = dt;
+  const spu = secPerUnit();
+  while (rem > 0) {
+    const dur = (W[pos].u + W[pos].pause) * spu;
+    const left = (1 - frac) * dur;
+    if (rem < left) { frac += rem / dur; rem = 0; }
+    else if (pos >= W.length - 1) { frac = 1; finish(); return; }
+    else { rem -= left; setPos(pos + 1, 0); }
+  }
+}
+
+/* ---------- voice mode ---------- */
+const getSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, wantListen = false, micState = 'off', heardCount = 0, heardSkip = 0, lastHeardAt = 0, restartTimer = 0;
+let paceSamples = [], pace = 0;
+
+function setMic(s) { micState = s; updateStatus(); }
+
+function startListening() {
+  const SR = getSR();
+  if (!SR) { toast('Этот браузер не распознаёт речь. На Айпаде откройте суфлёр в Safari. Ручной режим работает.', true); return false; }
+  if (!rec) {
+    rec = new SR();
+    rec.lang = 'ru-RU'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+    rec.onstart = () => setMic('on');
+    rec.onresult = e => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript + ' ';
+      heard(t);
+    };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        wantListen = false; setMic('blocked');
+        toast('Нет доступа к микрофону или распознаванию речи. Разрешите микрофон для этого сайта (Аа в адресной строке → Настройки веб-сайта) и включите диктовку: Настройки → Основные → Клавиатура → Диктовка. Ручной режим работает.', true);
+        if (state === 'running') pause();
+      } else if (e.error === 'audio-capture') {
+        toast('Микрофон занят другим приложением или не найден.', true);
+      }
+    };
+    rec.onend = () => {
+      heardCount = 0; heardSkip = 0;
+      if (wantListen) { clearTimeout(restartTimer); restartTimer = setTimeout(() => { if (wantListen) { try { rec.start(); } catch (_) {} } }, 120); }
+      else if (micState !== 'blocked') setMic('off');
+    };
+  }
+  wantListen = true;
+  try { rec.start(); } catch (err) { /* already started */ }
+  return true;
+}
+function stopListening() {
+  wantListen = false; clearTimeout(restartTimer);
+  if (rec) { try { rec.stop(); } catch (_) {} }
+  if (micState !== 'blocked') setMic('off');
+}
+
+function heard(transcript) {
+  const all = transcript.split(/\s+/).map(norm).filter(Boolean);
+  heardCount = all.length;
+  if (heardSkip > all.length) heardSkip = 0;
+  const tail = all.slice(heardSkip).slice(-7);
+  lastHeardAt = performance.now();
+  if (micState === 'on') { micEl.className = 'heard'; setTimeout(() => { if (micState === 'on') micEl.className = 'on'; }, 180); }
+  if (!tail.length || state !== 'running' || S.mode !== 'voice') return;
+  const e = findBest(tail);
+  if (e == null) return;
+  let np = e + 1;
+  while (np < W.length && !W[np].n) np++;
+  if (np >= W.length) { setPos(W.length - 1, 0); samplePace(); setTimeout(() => { if (state === 'running' && pos >= W.length - 1) finish(); }, 1500); return; }
+  setPos(np, 0);
+  samplePace();
+}
+
+function samplePace() {
+  const now = performance.now();
+  paceSamples.push({t: now, p: pos});
+  while (paceSamples.length && now - paceSamples[0].t > 20000) paceSamples.shift();
+  const a = paceSamples[0];
+  if (a && now - a.t > 6000 && pos > a.p) {
+    let words = 0; for (let i = a.p; i < pos; i++) if (W[i].n) words++;
+    const v = words / ((now - a.t) / 60000);
+    pace = Math.round(Math.max(40, Math.min(220, v)));
+  }
+}
+
+let simCache = new Map();
+function lev(a, b) {
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  let prev = new Array(n + 1), cur = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    [prev, cur] = [cur, prev];
+  }
+  return prev[n];
+}
+function sim(a, b) {
+  if (a === b) return 1;
+  const k = a + '|' + b;
+  if (simCache.has(k)) return simCache.get(k);
+  let r = 0;
+  const la = a.length, lb = b.length, L = Math.min(la, lb);
+  if (L >= 3) {
+    let p = 0; while (p < L && a[p] === b[p]) p++;
+    if (L >= 4 && p >= Math.max(4, Math.ceil(L * 0.6))) r = 0.9;
+    else if (Math.abs(la - lb) <= 3) { const q = 1 - lev(a, b) / Math.max(la, lb); if (q >= 0.72) r = q; }
+  }
+  if (simCache.size > 20000) simCache.clear();
+  simCache.set(k, r);
+  return r;
+}
+function wt(i) { const l = W[i].len; return l >= 5 ? 1 : l === 4 ? 0.8 : l === 3 ? 0.45 : 0.25; }
+function wlcs(tail, al, seg, bl) {
+  const dp = new Array(bl + 1).fill(0);
+  for (let x = 1; x <= al; x++) {
+    let prev = 0;
+    for (let y = 1; y <= bl; y++) {
+      const tmp = dp[y];
+      const s = sim(tail[x - 1], W[seg[y - 1]].n);
+      dp[y] = Math.max(dp[y], dp[y - 1], s ? prev + s * wt(seg[y - 1]) : 0);
+      prev = tmp;
+    }
+  }
+  return dp[bl];
+}
+function alignScore(tail, e) {
+  const T = tail.length;
+  const seg = [];
+  for (let k = e; k >= 0 && seg.length < T + 3; k--) if (W[k].n) seg.unshift(k);
+  let best = 0;
+  for (const t of [T - 1, T - 2]) {
+    if (t < 0) continue;
+    const s0 = sim(tail[t], W[e].n);
+    if (!s0) continue;
+    const sc = s0 * wt(e) + wlcs(tail, t, seg, seg.length - 1) - (T - 1 - t) * 0.15;
+    if (sc > best) best = sc;
+  }
+  return best;
+}
+// Returns the script index of the word just spoken, or null to stay put.
+function findBest(tail) {
+  const here = pos - 1;
+  const lo = Math.max(0, pos - 70), hi = Math.min(W.length - 1, pos + 90);
+  let best = null;
+  for (let e = lo; e <= hi; e++) {
+    if (!W[e].n) continue;
+    const sc = alignScore(tail, e);
+    if (sc <= 0) continue;
+    const d = e - here;
+    const stay = d <= 0 && d >= -1;
+    const far = Math.abs(d) > 40;
+    const need = stay ? 0 : far ? 3.4 : d < 0 ? 2.6 : d <= 3 ? 0.9 : d <= 12 ? 1.8 : 2.6;
+    if (sc < need) continue;
+    const val = sc - Math.abs(d) * 0.015 + (stay ? 0.1 : 0);
+    if (!best || val > best.val) best = {e, val, stay};
+  }
+  return best && !best.stay ? best.e : null;
+}
+window.prompterTestHeard = t => heard(t);
+
+/* ---------- state ---------- */
+let countTimer = 0, hideTimer = 0;
+function setState(s) {
+  state = s;
+  app.classList.toggle('running', s === 'running');
+  stage.classList.toggle('paused', s !== 'running' && s !== 'countdown');
+  playBtn.textContent = s === 'running' ? 'Пауза' : s === 'done' ? 'Сначала' : s === 'paused' ? 'Дальше' : 'Старт';
+  updateStatus();
+}
+function play() {
+  if (state === 'running' || state === 'countdown') return;
+  hideToast();
+  if (state === 'done') { setPos(0, 0); cy = targetY(); }
+  requestWake();
+  if (S.mode === 'voice') {
+    if (!startListening()) return;
+    heardSkip = heardCount; paceSamples = [];
+    setState('running');
+    return;
+  }
+  const n = +S.countdown || 0;
+  if (!n) { setState('running'); return; }
+  setState('countdown');
+  let left = n;
+  countEl.textContent = left; countEl.hidden = false;
+  clearInterval(countTimer);
+  countTimer = setInterval(() => {
+    left--;
+    if (left <= 0) { clearInterval(countTimer); countEl.hidden = true; setState('running'); }
+    else countEl.textContent = left;
+  }, 1000);
+}
+function pause() {
+  clearInterval(countTimer); countEl.hidden = true;
+  stopListening();
+  releaseWake();
+  setState('paused');
+}
+function finish() { stopListening(); releaseWake(); setState('done'); }
+function toggle() { (state === 'running' || state === 'countdown') ? pause() : play(); }
+
+/* ---------- wake lock / fullscreen ---------- */
+let wake = null;
+async function requestWake() { try { if ('wakeLock' in navigator && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch (e) { wake = null; } }
+function releaseWake() { try { if (wake) wake.release(); } catch (e) {} wake = null; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state === 'running') requestWake(); });
+const fsBtn = $('fs');
+const fsOK = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+fsBtn.hidden = !fsOK;
+fsBtn.addEventListener('click', () => {
+  try {
+    const d = document, el = d.documentElement;
+    if (d.fullscreenElement || d.webkitFullscreenElement) { (d.exitFullscreen || d.webkitExitFullscreen).call(d); }
+    else { const r = (el.requestFullscreen || el.webkitRequestFullscreen).call(el); if (r && r.catch) r.catch(() => {}); }
+  } catch (e) {}
+});
+
+/* ---------- toast ---------- */
+let toastTimer = 0;
+function toast(msg, isErr) {
+  toastEl.textContent = msg; toastEl.className = isErr ? 'err' : ''; toastEl.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, isErr ? 12000 : 5000);
+}
+function hideToast() { toastEl.hidden = true; }
+toastEl.addEventListener('click', hideToast);
+
+/* ---------- settings ---------- */
+function applyLook() {
+  const r = document.documentElement.style;
+  r.setProperty('--fs', S.size + 'px');
+  r.setProperty('--measure', S.width + '%');
+  $('mirror').classList.toggle('on', !!S.mirror);
+  $('modeManual').setAttribute('aria-pressed', S.mode === 'manual');
+  $('modeVoice').setAttribute('aria-pressed', S.mode === 'voice');
+  ['slower', 'faster'].forEach(id => $(id).disabled = S.mode === 'voice');
+  $('speedGroup').title = S.mode === 'voice' ? 'В режиме «Голос» скорость задаёт речь' : '';
+  measure();
+  updateStatus();
+}
+function setSpeed(v) { S.wpm = Math.max(40, Math.min(220, Math.round(v / 5) * 5)); save(); updateStatus(); }
+function setSize(v) { S.size = Math.max(36, Math.min(170, v)); save(); applyLook(); }
+function setMode(m) {
+  if (m === S.mode) return;
+  const wasRunning = state === 'running' || state === 'countdown';
+  if (wasRunning) pause();
+  if (m === 'manual' && pace) setSpeed(pace);
+  S.mode = m; save(); frac = 0;
+  if (m === 'voice' && !getSR()) toast('Этот браузер не распознаёт речь. На Айпаде нужен Safari.', true);
+  else if (m === 'voice') toast('Нажмите «Старт» и начинайте говорить — текст пойдёт за вами.');
+  applyLook();
+}
+
+$('play').addEventListener('click', e => { e.stopPropagation(); toggle(); });
+$('toStart').addEventListener('click', () => { jump(0); });
+$('prevS').addEventListener('click', prevSentence);
+$('nextS').addEventListener('click', nextSentence);
+$('slower').addEventListener('click', () => setSpeed(S.wpm - 5));
+$('faster').addEventListener('click', () => setSpeed(S.wpm + 5));
+$('smaller').addEventListener('click', () => setSize(S.size - 6));
+$('bigger').addEventListener('click', () => setSize(S.size + 6));
+$('modeManual').addEventListener('click', () => setMode('manual'));
+$('modeVoice').addEventListener('click', () => setMode('voice'));
+
+stage.addEventListener('click', e => {
+  if (state === 'running' || state === 'countdown') { pause(); return; }
+  const w = e.target.closest && e.target.closest('.w');
+  if (w) jump(+w.dataset.i);
+});
+
+/* panel */
+const panel = $('panel'), src = $('src');
+function openPanel() {
+  if (state === 'running' || state === 'countdown') pause();
+  src.value = S.text;
+  $('optMirror').checked = !!S.mirror;
+  $('optCount').value = String(S.countdown);
+  $('optRead').value = String(S.readPos);
+  $('optWidth').value = S.width;
+  panel.hidden = false;
+}
+function closePanel() {
+  const t = src.value.trim();
+  const changed = t && t !== S.text;
+  if (t) S.text = t;
+  save();
+  panel.hidden = true;
+  if (changed) { build(); setState('idle'); }
+  applyLook();
+}
+$('openPanel').addEventListener('click', openPanel);
+$('closePanel').addEventListener('click', closePanel);
+$('presetV2').addEventListener('click', () => { src.value = PRESETS.v2; });
+$('presetV1').addEventListener('click', () => { src.value = PRESETS.v1; });
+$('clearText').addEventListener('click', () => { src.value = ''; src.focus(); });
+$('optMirror').addEventListener('change', e => { S.mirror = e.target.checked; save(); applyLook(); });
+$('optCount').addEventListener('change', e => { S.countdown = +e.target.value; save(); });
+$('optRead').addEventListener('change', e => { S.readPos = +e.target.value; save(); applyLook(); });
+$('optWidth').addEventListener('input', e => { S.width = +e.target.value; save(); applyLook(); });
+
+/* keyboard, presentation clickers */
+document.addEventListener('keydown', e => {
+  if (!panel.hidden) { if (e.key === 'Escape') closePanel(); return; }
+  if (e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+  const k = e.key;
+  if (k === ' ' || k === 'Enter' || k === 'k' || k === 'K') { e.preventDefault(); toggle(); }
+  else if (k === 'ArrowUp') { e.preventDefault(); if (S.mode === 'manual') setSpeed(S.wpm + 5); }
+  else if (k === 'ArrowDown') { e.preventDefault(); if (S.mode === 'manual') setSpeed(S.wpm - 5); }
+  else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); prevSentence(); }
+  else if (k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); nextSentence(); }
+  else if (k === '+' || k === '=') setSize(S.size + 6);
+  else if (k === '-' || k === '_') setSize(S.size - 6);
+  else if (k === 'Home') jump(0);
+  else if (k === 'Escape' && state === 'running') pause();
+});
+
+/* ---------- loop ---------- */
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.1, Math.max(0, (t - last) / 1000)); last = t;
+  if (state === 'running' && S.mode === 'manual' && W.length) { advanceManual(dt); updateProgressOnly(); }
+  const target = targetY();
+  const k = (state === 'running' && S.mode === 'manual') ? 14 : 6;
+  cy += (target - cy) * (1 - Math.exp(-dt * k));
+  if (Math.abs(target - cy) < 0.3) cy = target;
+  scroller.style.transform = 'translate3d(0,' + cy.toFixed(1) + 'px,0)';
+  requestAnimationFrame(frame);
+}
+let lastProg = 0;
+function updateProgressOnly() { const now = performance.now(); if (now - lastProg > 500) { lastProg = now; updateStatus(); } }
+
+new ResizeObserver(() => { measure(); }).observe(stage);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { measure(); cy = targetY(); });
+
+applyLook();
+build();
+setState('idle');
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
